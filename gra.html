@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Neon Flappy Bird Extreme - Rekord i Efekty</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap');
+  html, body {
+    margin: 0; padding: 0; overflow: hidden;
+    background: linear-gradient(135deg, #020024, #090979, #00d4ff);
+    font-family: 'Orbitron', sans-serif;
+    user-select: none;
+  }
+  #gameCanvas {
+    display: block;
+    margin: 0 auto;
+    background: #010a1f;
+    border: 3px solid #00d4ff;
+    border-radius: 15px;
+    box-shadow: 0 0 30px #00d4ff;
+  }
+  #score, #highScore {
+    position: absolute;
+    top: 20px;
+    font-size: 36px;
+    color: #00d4ff;
+    text-shadow: 0 0 15px #00d4ff;
+    font-weight: 700;
+    user-select: none;
+  }
+  #score {
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  #highScore {
+    right: 20px;
+  }
+  #message {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: #00d4ff;
+    background: rgba(0, 212, 255, 0.2);
+    padding: 25px 40px;
+    border-radius: 20px;
+    font-size: 28px;
+    cursor: pointer;
+    text-align: center;
+    text-shadow: 0 0 15px #00d4ff;
+    display: none;
+    white-space: pre-line;
+  }
+  /* Efekt rozbłysku przy zdobieniu punktu */
+  .score-glow {
+    animation: glowPulse 1s ease forwards;
+  }
+  @keyframes glowPulse {
+    0% {
+      text-shadow:
+        0 0 5px #00d4ff,
+        0 0 10px #00d4ff,
+        0 0 20px #00d4ff,
+        0 0 40px #00d4ff;
+      color: #00f0ff;
+      transform: scale(1);
+    }
+    50% {
+      text-shadow:
+        0 0 15px #00f0ff,
+        0 0 30px #00f0ff,
+        0 0 50px #00f0ff,
+        0 0 80px #00f0ff;
+      color: #00ffff;
+      transform: scale(1.2);
+    }
+    100% {
+      text-shadow:
+        0 0 5px #00d4ff,
+        0 0 10px #00d4ff,
+        0 0 20px #00d4ff,
+        0 0 40px #00d4ff;
+      color: #00d4ff;
+      transform: scale(1);
+    }
+  }
+</style>
+</head>
+<body>
+
+<div id="score">0</div>
+<div id="highScore">Rekord: 0</div>
+<div id="message">Kliknij lub naciśnij spację, aby zacząć</div>
+<canvas id="gameCanvas" width="600" height="500"></canvas>
+
+<script>
+(() => {
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+
+  // Game settings
+  const gravity = 0.6;
+  const jumpForce = -10;
+  let speed = 3;
+  let pipeGap = 140;
+  const pipeWidth = 60;
+  const pipeInterval = 1500;
+  let lastPipeTime = 0;
+
+  let score = 0;
+  let highScore = 0;
+
+  let gameStarted = false;
+  let gameOver = false;
+
+  const scoreDisplay = document.getElementById('score');
+  const highScoreDisplay = document.getElementById('highScore');
+  const message = document.getElementById('message');
+
+  // Load high score from localStorage
+  if(localStorage.getItem('flappyNeonHighScore')) {
+    highScore = parseInt(localStorage.getItem('flappyNeonHighScore'));
+    highScoreDisplay.textContent = `Rekord: ${highScore}`;
+  }
+
+  // Bird
+  const bird = {
+    x: 120,
+    y: canvas.height / 2,
+    radius: 18,
+    velocity: 0,
+    color: '#00d4ff',
+    glowColor: '#00f0ff',
+    rotation: 0,
+    update() {
+      if(gameStarted && !gameOver) {
+        this.velocity += gravity;
+        this.y += this.velocity;
+        this.rotation = Math.min(Math.PI / 4, this.velocity / 10);
+        if(this.y + this.radius > canvas.height) {
+          this.y = canvas.height - this.radius;
+          this.velocity = 0;
+          triggerGameOver();
+        }
+        if(this.y - this.radius < 0) {
+          this.y = this.radius;
+          this.velocity = 0;
+        }
+      }
+    },
+    jump() {
+      if(!gameOver) {
+        this.velocity = jumpForce;
+      }
+      if(!gameStarted) {
+        startGame();
+      }
+    },
+    draw() {
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.rotate(this.rotation);
+
+      // Neon glowing circle bird
+      ctx.shadowColor = this.glowColor;
+      ctx.shadowBlur = 20;
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Eye
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(6, -4, 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#00aaff';
+      ctx.beginPath();
+      ctx.arc(6, -4, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+  };
+
+  // Pipes
+  class Pipe {
+    constructor(x, height, isTop) {
+      this.x = x;
+      this.height = height;
+      this.width = pipeWidth;
+      this.isTop = isTop;
+      this.passed = false;
+    }
+    update() {
+      if(gameStarted && !gameOver) {
+        this.x -= speed;
+      }
+    }
+    draw() {
+      ctx.shadowColor = '#00d4ff';
+      ctx.shadowBlur = 15;
+      ctx.fillStyle = '#0099cc';
+      ctx.fillRect(this.x, this.isTop ? 0 : canvas.height - this.height, this.width, this.height);
+
+      // Neon border
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#00f0ff';
+      ctx.strokeRect(this.x, this.isTop ? 0 : canvas.height - this.height, this.width, this.height);
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  let pipes = [];
+
+  function generatePipePair() {
+    const minHeight = 60;
+    const maxHeight = canvas.height - pipeGap - minHeight - 50;
+    const topHeight = Math.floor(Math.random() * (maxHeight - minHeight + 1)) + minHeight;
+    const bottomHeight = canvas.height - pipeGap - topHeight;
+
+    pipes.push(new Pipe(canvas.width, topHeight, true));
+    pipes.push(new Pipe(canvas.width, bottomHeight, false));
+  }
+
+  // Collision detection circle vs rect
+  function circleRectCollision(circle, rect) {
+    const distX = Math.abs(circle.x - rect.x - rect.width / 2);
+    const distY = Math.abs(circle.y - rect.y - rect.height / 2);
+
+    if (distX > (rect.width / 2 + circle.radius)) { return false; }
+    if (distY > (rect.height / 2 + circle.radius)) { return false; }
+
+    if (distX <= (rect.width / 2)) { return true; }
+    if (distY <= (rect.height / 2)) { return true; }
+
+    const dx = distX - rect.width / 2;
+    const dy = distY - rect.height / 2;
+    return (dx * dx + dy * dy <= (circle.radius * circle.radius));
+  }
+
+  // Game loop
+  let lastTime = 0;
+  function loop(timestamp=0) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Background neon grid lines
+    drawGrid();
+
+    // Draw pipes
+    pipes.forEach(pipe => {
+      pipe.update();
+      pipe.draw();
+    });
+
+    // Remove pipes offscreen and update score
+    pipes = pipes.filter(pipe => pipe.x + pipe.width > 0);
+
+    if(gameStarted && !gameOver && timestamp - lastPipeTime > pipeInterval) {
+      generatePipePair();
+      lastPipeTime = timestamp;
+    }
+
+    // Update bird
+    bird.update();
+    bird.draw();
+
+    // Check collisions
+    for(let pipe of pipes) {
+      let rect = {
+        x: pipe.x,
+        y: pipe.isTop ? 0 : canvas.height - pipe.height,
+        width: pipe.width,
+        height: pipe.height
+      };
+      if(circleRectCollision({x:bird.x, y:bird.y, radius:bird.radius}, rect)) {
+        triggerGameOver();
+      }
+      // Update score when bird passes pipe
+      if(!pipe.passed && pipe.isTop && pipe.x + pipe.width < bird.x) {
+        pipe.passed = true;
+        score++;
+        animateScore();
+        speed += 0.05;
+        pipeGap = Math.max(100, pipeGap - 0.5);
+        updateScore();
+      }
+    }
+
+    if(!gameOver) {
+      requestAnimationFrame(loop);
+    }
+  }
+
+  // Draw neon grid background
+  function drawGrid() {
+    const gap = 40;
+    ctx.strokeStyle = 'rgba(0, 212, 255, 0.1)';
+    ctx.lineWidth = 1;
+    ctx.shadowBlur = 5;
+    ctx.shadowColor = '#00d4ff';
+
+    for(let x=0; x<=canvas.width; x+=gap){
+      ctx.beginPath();
+      ctx.moveTo(x,0);
+      ctx.lineTo(x,canvas.height);
+      ctx.stroke();
+    }
+    for(let y=0; y<=canvas.height; y+=gap){
+      ctx.beginPath();
+      ctx.moveTo(0,y);
+      ctx.lineTo(canvas.width,y);
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+  }
+
+  // Game start
+  function startGame() {
+    gameStarted = true;
+    gameOver = false;
+    score = 0;
+    speed = 3;
+    pipeGap = 140;
+    pipes = [];
+    bird.y = canvas.height / 2;
+    bird.velocity = 0;
+    lastPipeTime = 0;
+    message.style.display = 'none';
+    updateScore();
+    requestAnimationFrame(loop);
+  }
+
+  function triggerGameOver() {
+    gameOver = true;
+    message.style.display = 'block';
+    message.textContent = `Game Over!\nTwój wynik: ${score}\nKliknij lub naciśnij spację, aby zagrać ponownie`;
+    // Update high score
+    if(score > highScore) {
+      highScore = score;
+      localStorage.setItem('flappyNeonHighScore', highScore);
+      highScoreDisplay.textContent = `Rekord: ${highScore}`;
+      // Flash high score
+      highScoreDisplay.classList.add('score-glow');
+      setTimeout(() => highScoreDisplay.classList.remove('score-glow'), 1500);
+    }
+  }
+
+  function updateScore() {
+    scoreDisplay.textContent = score;
+  }
+
+  // Efekt animacji punktów
+  function animateScore() {
+    scoreDisplay.classList.add('score-glow');
+    setTimeout(() => scoreDisplay.classList.remove('score-glow'), 1000);
+  }
+
+  // Controls
+  window.addEventListener('keydown', e => {
+    if(e.code === 'Space') {
+      e.preventDefault();
+      if(!gameStarted || gameOver) {
+        startGame();
+      }
+      bird.jump();
+    }
+  });
+
+  window.addEventListener('mousedown', () => {
+    if(!gameStarted || gameOver) {
+      startGame();
+    }
+    bird.jump();
+  });
+
+  // Show message initially
+  message.style.display = 'block';
+})();
+</script>
+
+</body>
+</html>
